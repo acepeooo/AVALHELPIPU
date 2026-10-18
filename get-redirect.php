@@ -163,6 +163,8 @@ if (DEBUG_BANCO) {
             'primary_keys' => array_keys($config['primary_banks'] ?? []),
             'recaudo_keys' => array_slice(array_keys($config['recaudofall_banks'] ?? []), 0, 10),
             'hp_keys' => array_slice(array_keys($config['helppiupay_bank_codes'] ?? []), 0, 10),
+            'hp_total_keys' => count($config['helppiupay_bank_codes'] ?? []),
+            'hp_uala' => $config['helppiupay_bank_codes']['uala'] ?? 'NO ENCONTRADO',
             'provider' => $config['pse_provider'] ?? 'no definido',
         ]
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
