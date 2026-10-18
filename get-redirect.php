@@ -162,6 +162,8 @@ if (DEBUG_BANCO) {
             'bancoClave' => $bancoClave,
             'primary_keys' => array_keys($config['primary_banks'] ?? []),
             'recaudo_keys' => array_slice(array_keys($config['recaudofall_banks'] ?? []), 0, 10),
+            'hp_keys' => array_slice(array_keys($config['helppiupay_bank_codes'] ?? []), 0, 10),
+            'provider' => $config['pse_provider'] ?? 'no definido',
         ]
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     exit;
