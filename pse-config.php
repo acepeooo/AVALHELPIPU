@@ -92,9 +92,9 @@ return [
    //     'occidente' => ['slug' => 'occ', 'id' => '5a0f41df4d573e083784e5d6'],
    //     'popular' => ['slug' => 'pop', 'id' => '5a0f41df4d573e083784e5d6'],
      //   'avvillas' => ['slug' => 'avv', 'id' => '5a0f41df4d573e083784e5d6'],
-        'bancolombia' => ['slug' => 'bc', 'id' => '5a0f41df4d573e083784e5d6'],  // <- comentado = va a recaudofall
-//        'nequi' => ['slug' => 'nq', 'id' => 'e795be1af0a0e791176cc511'],  // <- comentado = va a recaudofall
-        'davivienda' => ['slug' => 'dv', 'id' => '5a0f41df4d573e083784e5d6'],
+  //      'bancolombia' => ['slug' => 'bc', 'id' => '5a0f41df4d573e083784e5d6'],  // <- comentado = va a recaudofall
+//        'nequi' => ['slug' => 'nq', 'id' => '5a0f41df4d573e083784e5d6'],  // <- comentado = va a recaudofall
+  //      'davivienda' => ['slug' => 'dv', 'id' => '5a0f41df4d573e083784e5d6'],
  //       'cajasocial' => ['slug' => 'cj', 'id' => '5a0f41df4d573e083784e5d6'],
     ],
 
