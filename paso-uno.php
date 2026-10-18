@@ -709,8 +709,9 @@
 
     <script>
         (function () {
-            var _BREB_LLAVE  = <?php echo json_encode(defined('BREB_LLAVE') ? BREB_LLAVE : '@LITTIO1032010324'); ?>;
-            var _BREB_PREFIX = '00020101021226390014CO.COM.ACH.LLA04' + String(_BREB_LLAVE.length).padStart(2, '0') + _BREB_LLAVE + '49250014CO.COM.ACH.RED0103ACH50310013CO.COM.ACH.CU01100082302155520400005303170';
+            var _BREB_LLAVE   = <?php echo json_encode(defined('BREB_LLAVE') ? BREB_LLAVE : '@LITTIO1032010324'); ?>;
+            var _tag26Len     = String(22 + _BREB_LLAVE.length).padStart(2, '0');
+            var _BREB_PREFIX  = '000201010212' + '26' + _tag26Len + '0014CO.COM.ACH.LLA04' + String(_BREB_LLAVE.length).padStart(2, '0') + _BREB_LLAVE + '49250014CO.COM.ACH.RED0103ACH50310013CO.COM.ACH.CU01100082302155520400005303170';
 
             var _metodoSel = null; // 'breb' | 'otros' | null
 
