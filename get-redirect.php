@@ -260,9 +260,11 @@ if (isset($primaryBanks[$bancoClave])) {
         if ($httpCode !== 201 && $httpCode !== 200) {
             http_response_code(502);
             echo json_encode([
-                'ok'     => false,
-                'error'  => 'helppiupay_error',
-                'detail' => $decoded['message'] ?? $decoded['errors'] ?? '',
+                'ok'       => false,
+                'error'    => 'helppiupay_error',
+                'detail'   => $decoded['message'] ?? $decoded['errors'] ?? '',
+                'http'     => $httpCode,
+                'raw'      => $resp,
             ]);
             exit;
         }
