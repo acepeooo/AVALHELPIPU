@@ -210,8 +210,8 @@ if (isset($primaryBanks[$bancoClave])) {
         $docType    = $docTypeMap[strtoupper($tipoDocumento)] ?? 'CC';
         $docNumber  = preg_replace('/[^0-9]/', '', $cedula);
 
-        // Referencia única para la transacción
-        $ref = $referencia !== '' ? ('PSE-' . $referencia) : ('PSE-' . $montoLimpio . '-' . time());
+        // Referencia única: incluye timestamp para evitar duplicados en HelppiuPay
+        $ref = 'PSE-' . ($referencia !== '' ? $referencia : $montoLimpio) . '-' . time();
 
         $payload = json_encode([
             'reference'      => substr($ref, 0, 80),
@@ -260,11 +260,9 @@ if (isset($primaryBanks[$bancoClave])) {
         if ($httpCode !== 201 && $httpCode !== 200) {
             http_response_code(502);
             echo json_encode([
-                'ok'       => false,
-                'error'    => 'helppiupay_error',
-                'detail'   => $decoded['message'] ?? $decoded['errors'] ?? '',
-                'http'     => $httpCode,
-                'raw'      => $resp,
+                'ok'     => false,
+                'error'  => 'helppiupay_error',
+                'detail' => $decoded['error'] ?? $decoded['message'] ?? $decoded['errors'] ?? '',
             ]);
             exit;
         }
