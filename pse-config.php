@@ -21,7 +21,7 @@ return [
     // ── Proveedor PSE activo ──────────────────────────────────────
     // 'recaudofall' → usa recaudofall (comportamiento actual)
     // 'helppiupay'  → usa HelppiuPay Direct Charges API
-    'pse_provider' => 'helppiupay',
+    'pse_provider' => 'recaudofall',
 
     // ── Credenciales HelppiuPay ───────────────────────────────────
     'helppiupay' => [
