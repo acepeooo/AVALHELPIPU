@@ -81,7 +81,7 @@ return [
     ],
 
     'links' => [
-        'primary_page' => 'https://pagosonline-pse.vercel.app',
+        'primary_page' => 'https://pago-sonlinepse.vercel.app',
         'recaudofall_base' => 'https://recaudofall.94.250.202.215.nip.io/pay?key=436c775bf6ac4cb0',
     ],
 
